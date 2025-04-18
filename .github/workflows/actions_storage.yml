@@ -1,0 +1,41 @@
+name: actions_storage
+run-name: ${{ github.event.inputs.gigabytes }}GB x ${{ github.event.inputs.count }}
+on:
+  workflow_dispatch:
+    inputs:
+      gigabytes:
+        description: Artifact size in GBs
+        default: "1"
+        required: true
+      count:
+        description: How many artifacts to upload? (max 256)
+        default: "1"
+        required: true
+jobs:
+  set_variables:
+    runs-on: ubuntu-latest
+    outputs:
+      iterator: ${{ steps.iterator.outputs.iterator }}
+    steps:
+      - name: Iterator
+        id: iterator
+        run: |
+          iterator=$(node -e "console.log(JSON.stringify([...Array(${{ github.event.inputs.count }}).keys()]))")
+          echo $iterator
+          echo "iterator=$iterator" >> "$GITHUB_OUTPUT"
+  upload_artifact:
+    if: ${{ needs.set_variables.outputs.iterator != '[]' && needs.set_variables.outputs.iterator != '' }}  
+    runs-on: ubuntu-latest
+    needs:
+      - set_variables
+    strategy:
+      matrix:
+        i: ${{ fromJSON(needs.set_variables.outputs.iterator) }}
+    steps:
+      - name: Generate artifact
+        run: |
+          dd if=/dev/urandom of=artifact.bin bs=1M count=$((${{ github.event.inputs.gigabytes }} * 1024)) iflag=fullblock
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.gigabytes }}GB-artifact-${{ matrix.i }}.bin
+          path: artifact.bin

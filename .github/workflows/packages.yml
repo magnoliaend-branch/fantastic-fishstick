@@ -1,0 +1,106 @@
+# Start by running the workflow to create some packages and resulting storage usage.
+# Once the workflow finishes. Scroll down to the bottom of the "Summary" page to learn how to generate bandwidth usage.
+# The bandwidth has to be generated from your machine, because bandwidth used within GitHub Actions is free.
+name: packages
+run-name: ${{ github.event.inputs.megabytes }}MB x ${{ github.event.inputs.count }}
+on:
+  workflow_dispatch:
+    inputs:
+      megabytes:
+        description: Package size in MBs (max 250)
+        default: "128"
+        required: true
+      count:
+        description: How many packages to create? (max 256)
+        default: "1"
+        required: true
+jobs:
+  set_variables:
+    runs-on: ubuntu-latest
+    outputs:
+      iterator: ${{ steps.iterator.outputs.iterator }}
+    steps:
+      - name: Iterator
+        id: iterator
+        run: |
+          iterator=$(node -e "console.log(JSON.stringify([...Array(${{ github.event.inputs.count }}).keys()]))")
+          echo $iterator
+          echo "iterator=$iterator" >> "$GITHUB_OUTPUT"
+  packages:
+    if: ${{ needs.set_variables.outputs.iterator != '[]' && needs.set_variables.outputs.iterator != '' }}  
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    needs:
+      - set_variables
+    strategy:
+      matrix:
+        i: ${{ fromJSON(needs.set_variables.outputs.iterator) }}
+    steps:
+      - name: Package name
+        run: |
+          echo "PACKAGE_NAME=@${REPOSITORY,,}" >>${GITHUB_ENV}
+          echo "PACKAGE_VERSION=1.${{ matrix.i }}.$(date +%s)" >>${GITHUB_ENV}
+        env:
+          REPOSITORY: "${{ github.repository }}"
+      - name: Create package.json
+        shell: pwsh
+        run: |
+          New-Item package.json
+          $Timestamp = Get-Date -UFormat %s -Millisecond 0
+          Set-Content package.json "{`"name`": `"$Env:PACKAGE_NAME`", `"version`": `"$Env:PACKAGE_VERSION`"}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          registry-url: "https://npm.pkg.github.com"
+      - run: npm install
+      - run: echo "This package was published by Pac-Man" > README.md
+      - name: Generate large package content
+        run: |
+          openssl rand -out ${{ github.event.inputs.megabytes }}MB-file.txt $(echo "${{ github.event.inputs.megabytes }} * 1024 * 1024 / 1" | bc)
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set PACKAGE_DOWNLOAD_URL
+        run: |
+          $(curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" --output /tmp/pac-man-package-versions.json https://npm.pkg.github.com/$PACKAGE_NAME)
+          if grep -q "error\":" /tmp/pac-man-package-versions.json; then
+            cat /tmp/pac-man-package-versions.json
+            exit 1
+          fi
+          download_url=$(cat /tmp/pac-man-package-versions.json | jq ".versions | .[\"$PACKAGE_VERSION\"] | .dist | .tarball" -r)
+          echo "PACKAGE_DOWNLOAD_URL=$download_url"
+          echo "PACKAGE_DOWNLOAD_URL=$download_url" >>${GITHUB_ENV}
+      - name: Generate pac-man.sh
+        run: |
+          echo "set -e" >> pac-man.sh
+          echo "echo \"Please enter a GitHub personal access token with scope packages:read\"" >> pac-man.sh
+          echo "read -s GITHUB_TOKEN" >> pac-man.sh
+          echo "h1=\"Authorization\"" >> pac-man.sh
+          echo "h2=\"Bearer\"" >> pac-man.sh
+          echo "download_url=$PACKAGE_DOWNLOAD_URL" >> pac-man.sh
+          echo "echo \"Package download URL: \$download_url\"" >> pac-man.sh
+          echo "for i in {1..1000}" >> pac-man.sh
+          echo "do" >> pac-man.sh
+          echo "  curl -H \"\$h1: \$h2 \$GITHUB_TOKEN\" -L \$download_url --output /tmp/pac-man-package || true" >> pac-man.sh
+          echo "  if grep -q \"error\\\":\" /tmp/pac-man-package; then" >> pac-man.sh
+          echo "    cat /tmp/pac-man-package" >> pac-man.sh
+          echo "    exit 1" >> pac-man.sh
+          echo "  fi" >> pac-man.sh
+          echo "done" >> pac-man.sh
+      - name: Execution instructions
+        # Only show for the first iteration
+        if: ${{ matrix.i < 1 }}
+        run: |
+          echo "# Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "You have successfuly created new package(s) and you should get billed for the used storage soon! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Follow the additional steps to generate bandwidth usage. The bandwidth has to be generated from your machine, because bandwidth used within GitHub Actions is free." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create a GitHub [classic personal access token](https://github.com/settings/tokens) with scope \`packages:read\`" >> $GITHUB_STEP_SUMMARY
+          echo "1. Copy and paste the following script directly to your terminal, enter the token when prompted" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`shell" >> $GITHUB_STEP_SUMMARY
+          cat pac-man.sh >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

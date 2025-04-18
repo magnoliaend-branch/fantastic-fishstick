@@ -1,0 +1,47 @@
+# Codespaces can be created only with your personal access token. The default token available to GitHub Actions does not have the required permissions.
+# Before running this workflow, follow these steps:
+#
+# 1. Create a classic personal access token at https://github.com/settings/tokens with scopes "codespace" and "repo"
+# 2. Save the token as Actions secret "PACMAN_TOKEN" in your test repository (https://github.com/:org/:repo/settings/secrets/actions)
+#
+# Remember that Codespaces have to be enabled in your enterprise account "Policies" and org "Settings" at the same time.
+#
+# Tip: Use the "lfs" action to generate some large files in your repository first. This will increase the Codespaces storage usage.
+name: codespaces
+run-name: ${{ github.event.inputs.sku }}, ${{ github.event.inputs.minutes }} minutes
+on:
+  workflow_dispatch:
+    inputs:
+      sku:
+        type: choice
+        description: SKU
+        options:
+          - basicLinux32gb
+          - standardLinux32gb
+          - premiumLinux
+          - largePremiumLinux
+      minutes:
+        description: Minutes
+        default: "30"
+        required: true
+jobs:
+  codespaces:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Codespace
+        id: create
+        # Min --idle-timeout is 5. Otherwise try to use $MINUTES so the codespace does not stop too early.
+        # tail -n1 extracts the last line of gh codespace create output, the codespace name. Text "✓ Codespaces usage for this repository is paid for by" can
+        # be present on the first line.
+        run: |
+          idle_timeout=$(( $MINUTES > 5 ? $MINUTES : 5 ))
+          codespace_name=$(gh codespace create -r ${{ github.repository }} -b main -m ${{ github.event.inputs.sku }} --idle-timeout ${idle_timeout}m | tail -n1)
+          echo "::set-output name=codespace_name::$codespace_name"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACMAN_TOKEN }}
+          MINUTES: ${{ github.event.inputs.minutes }}
+      - run: echo "😴 Sleeping for ${{ github.event.inputs.minutes }} minute(s) to generate more Codespaces usage"
+      - run: sleep $((${{ github.event.inputs.minutes }} * 60))
+      - run: gh codespace delete -c ${{ steps.create.outputs.codespace_name }} --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACMAN_TOKEN }}
