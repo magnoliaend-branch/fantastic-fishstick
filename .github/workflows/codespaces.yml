@@ -35,13 +35,13 @@ jobs:
         # be present on the first line.
         run: |
           idle_timeout=$(( $MINUTES > 5 ? $MINUTES : 5 ))
-          codespace_name=$(gh codespace create -r ${{ github.repository }} -b main -m ${{ github.event.inputs.sku }} --idle-timeout ${idle_timeout}m | tail -n1)
-          echo "::set-output name=codespace_name::$codespace_name"
+          codespace_name=$(gh codespace create -R ${{ github.repository }} -b main -m ${{ github.event.inputs.sku }} --idle-timeout ${idle_timeout}m | tail -n1)
+          echo "CODESPACE_NAME=$codespace_name" >> $GITHUB_ENV
         env:
           GITHUB_TOKEN: ${{ secrets.PACMAN_TOKEN }}
           MINUTES: ${{ github.event.inputs.minutes }}
       - run: echo "😴 Sleeping for ${{ github.event.inputs.minutes }} minute(s) to generate more Codespaces usage"
       - run: sleep $((${{ github.event.inputs.minutes }} * 60))
-      - run: gh codespace delete -c ${{ steps.create.outputs.codespace_name }} --force
+      - run: gh codespace delete -c $CODESPACE_NAME --force
         env:
           GITHUB_TOKEN: ${{ secrets.PACMAN_TOKEN }}
